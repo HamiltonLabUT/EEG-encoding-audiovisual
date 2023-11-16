@@ -18,9 +18,9 @@ Communication in the real world is inherently multimodal. When having a conversa
 | `create_h5_funcs.py` | Feature extraction file for phonological features, acoustic envelope, spectrogram, F0 pitch, binned pitch. _No changes to the code should be necessary for other ECoG subjects, except for potentially path modifications_.  |
 | `EEG_create_h5_file.ipynb` | Jupyter notebook imports `h5_funcs.py`  and creates an .h5 file by reading in each participant's neural data (epoched), and planting the corresponding epoched neural data and speech feature extraction for each Movie trailer conditions (AV, A or V). This .h5 file is available at https://osf.io/tgbk7/ so the creation of this file is not necessary. |
 
-The .h5 file which gets created from the `EEG_create_h5_file.ipynb` file is structured accordingly. It is important that this structure stays the same across all ECoG subjects because the analysis code to fit the encoding models to predict brain data to any given speech or visual feature is programmed based on the data file structure: 
+The .h5 file which gets created from the `EEG_create_h5_file.ipynb` file is structured accordingly. It is important that this structure stays the same across all EEG subjects because the analysis code to fit the encoding models to predict brain data to any given speech or visual feature is programmed based on the data file structure: 
 
---- `Main` (S000X_ECoG_matrix.hf5):
+--- `Main` (full_AV_matrix.hf5):
 
     --- `A` or `AV` or `V`
         --- `wav_name` : the name of the .wav file (either the trailer wav_name for the A or AV condition OR the trailers name with a slightly longer extension `_notif_sound.wav` for the V only) which was heard/seen
