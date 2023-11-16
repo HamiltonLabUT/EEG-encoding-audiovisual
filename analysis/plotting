@@ -1,0 +1,799 @@
+import numpy as np
+import pandas as pd
+import matplotlib
+from matplotlib import pyplot as plt
+import matplotlib as mpl
+import h5py
+import textgrid as tg
+from praatio import tgio
+import os
+import mne
+import sys
+sys.path.insert(1, ("/Users/maansidesai/Desktop/git/audiovisual_trailers/preproc/"))
+#os.path.join("/Users/maansidesai/Desktop/git/audiovisual_trailers/preproc/h5_funcs.py")
+from h5_funcs import load_raw_EEG, get_event_epoch
+from matplotlib_venn import venn2
+import scipy
+from collections import Counter
+import math
+from matplotlib import cm, rcParams
+import csv
+from scipy.stats import wilcoxon
+
+def phnfeat_av_a(subject_list, data_dir):
+
+	# elecs_dict = {'visual': ['PO7', 'PO3', 'POz', 'PO4', 'PO8', 'O1', 'Oz', 'O2'], 'auditory': ['AFz', 'Cz','FCz','CPz','C1','C2','FC1','FC2']}
+	elecs_dict = {'visual': ['P7', 'P5', 'P3', 'P1', 'Pz', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POz', 'PO4', 'PO8', 'O1', 'Oz', 'O2'], 
+				'auditory': ['AFz', 'Cz','FCz','CPz','C1','C2', 'C6', 'FC1','FC2', 'FC3', 'FC5', 'FC4', 'CP5', 'CP3', 'CP4', 'CP6', 'Fz']}
+	raw = load_raw_EEG(subject_list[0], 1, data_dir)
+	chnames = raw.info['ch_names']
+	vis_idx = [i for i, item in enumerate(chnames) if item in elecs_dict['visual']]
+	aud_idx = [i for i, item in enumerate(chnames) if item in elecs_dict['auditory']]
+
+	corrs_av = []
+	corrs_v = []
+
+	visual_elecs_av = [] 
+	auditory_elecs_av = []
+
+	visual_elecs_v  = []
+	auditory_elecs_v= []
+
+	for idx, i in enumerate(subject_list):
+		with h5py.File(f'{data_dir}/{i}/{i}_STRF_by_phnfeat_A.hf5', 'r') as fh:
+			with h5py.File(f'{data_dir}/{i}/{i}_STRF_by_phnfeat_AV.hf5', 'r') as h:
+				vis = fh['corrs_mt'][:] #visual only
+				av = h['corrs_mt'][:] #AV condition
+
+
+				v_v = vis[vis_idx] #visual only visual elecs
+				v_a = vis[aud_idx] #visual only auditory elecs
+
+				av_v = av[vis_idx] #AV visual elecs
+				av_a = av[aud_idx] #AV auditory elecs
+
+		#all corrs
+		corrs_v.append(vis)
+		corrs_av.append(av)
+
+		#AV condition
+		visual_elecs_av.append(av_v) 
+		auditory_elecs_av.append(av_a)
+
+		#Visual only condition
+		visual_elecs_v.append(v_v)
+		auditory_elecs_v.append(v_a)
+
+	plt.figure()
+	for idx, m in enumerate(subject_list):
+		plt.plot(corrs_av[idx], corrs_v[idx], '.', color='#808080', alpha=0.3)
+
+		plt.plot(visual_elecs_av[idx], visual_elecs_v[idx], '.', color='purple', alpha=0.7) #AV v V condition visual elecs
+		plt.plot(auditory_elecs_av[idx], auditory_elecs_v[idx], '.', color='green', alpha=0.7) #AV v V condition auditory elecs
+
+	plt.plot([-0.04, 0.13], [-0.04, 0.13], 'black', label='unity')
+	plt.xlabel('audiovisual phnfeat (r)')
+	plt.ylabel('audio phnfeat (r)')
+	plt.title('Phnfeat: AV vs. V')
+	plt.legend(['all', 'visual_elecs','aud_elecs'])
+
+
+def scatters(subject_list, user, data_dir, x, y, condition1, condition2, annotate_plot=False):
+	'''
+	Create scatter plots for specified conditions conditions only using two contrasting feature sub-spaces
+	e.g. phnfeat vs. mouthing_phnfeat (x vs. y)
+	e.g. AV vs. AV or AV vs. A or A vs. V, etc. 
+
+
+	Inputs x and y must be strings which are the same name as how the STRF files are saved
+	Function will also compute two-tailed Wilcoxon sign_rank test
+	'''
+	strf1 = []
+	strf2 = []
+
+	for idx, i in enumerate(subject_list):
+		with h5py.File(f'{data_dir}/{i}/{i}_STRF_by_{x}_{condition1}.hf5', 'r') as fh:
+			with h5py.File(f'{data_dir}/{i}/{i}_STRF_by_{y}_{condition2}.hf5', 'r') as h:
+				corrs1 = fh['corrs_mt'][:]
+				corrs2 = h['corrs_mt'][:]
+		strf1.append(corrs1)
+		strf2.append(corrs2)
+
+	print(f'processing stats for {condition1} {x} vs. {condition2} {y}: ')
+	res = wilcoxon(np.concatenate(strf1), np.concatenate(strf2), alternative='two-sided')
+	print(res.statistic)
+	print(res.pvalue) 
+
+	plt.figure()
+	for idx, m in enumerate(subject_list):
+		plt.plot(strf1[idx], strf2[idx], '.', color='grey', alpha=0.8)
+		#plt.plot(corrs_nonsig_av[idx], corrs_nonsig_v[idx], '.', color='#DCDBDB', alpha=0.7)
+
+	x_coord = input('Enter x-coordinate value: ')
+	x_coord = float(x_coord)
+
+	y_coord = input('Enter y-coordinate value: ')
+	y_coord = float(y_coord)
+
+	plt.plot([x_coord, y_coord], [x_coord, y_coord], 'black', label='unity', linestyle='dotted')
+	plt.xlabel(f'{condition1} {x} (r)')
+	plt.ylabel(f'{condition2} {y} (r)')
+	plt.title(f'{x} vs. {y}')
+	plt.axis('square')
+
+	if annotate_plot:
+		plt.annotate(f'W={res.statistic}', xy=(0.0, 0.2),  xycoords='data',
+				xytext=(0.20, 0.00))
+
+		plt.annotate(f'p={res.pvalue}', xy=(0.0, 0.2),  xycoords='data',
+				xytext=(0.20, -0.02))	
+
+	save_fig=f'/Users/{user}/Box/Desai_Conference_and_Journal_Submissions/interspeech-2023_conference/'
+	plt.savefig(f'{save_fig}/python_figs/{x}_{y}_{condition1}_vs_{condition2}.pdf')
+
+	return strf1, strf2
+
+def corrs_topo(corrs, subject_list, row=6, col=2, individuals=False, average=True):
+	model = input('Enter the condition and feature type: ')
+
+	if individuals:
+		fig = plt.figure()
+		
+		fig.subplots_adjust(wspace=0.3, hspace=0.3)
+		plt.suptitle(f'{model}')
+		for i, s in enumerate(subject_list):
+			raw = load_raw_EEG(s, 1, data_dir)
+			nchans = raw.info['ch_names']
+			
+			info = mne.create_info(ch_names=nchans, sfreq=raw.info['sfreq'], ch_types=64*['eeg'])
+			raw2 = mne.io.RawArray(np.zeros((64,10)), info)
+			montage = mne.channels.make_standard_montage('standard_1005')
+			raw2.set_montage(montage)
+			plt.subplot(row,col,i+1)
+
+			im,cm = mne.viz.plot_topomap(corrs[i], raw2.info, vmin=corrs[i].min(), vmax=corrs[i].max())
+			plt.title(f'{s}',fontsize=8)
+			
+			cbar_ax = fig.add_axes()
+			clb = fig.colorbar(im, cax=cbar_ax)
+		plt.savefig(f'{save_fig}/python_figs/{model}_individual.pdf')
+
+		
+
+	if average:
+		avg_corrs = np.vstack(corrs).mean(0)
+		raw = load_raw_EEG(subject_list[0], 1, data_dir)
+		nchans = raw.info['ch_names']
+		
+		info = mne.create_info(ch_names=nchans, sfreq=raw.info['sfreq'], ch_types=64*['eeg'])
+		raw2 = mne.io.RawArray(np.zeros((64,10)), info)
+		montage = mne.channels.make_standard_montage('standard_1005')
+		raw2.set_montage(montage)
+		
+		fig,ax = plt.subplots(ncols=1)
+		im, cm = mne.viz.plot_topomap(avg_corrs, raw2.info, vmin=avg_corrs.min(), vmax=avg_corrs.max())
+
+		cbar_ax = fig.add_axes()
+		clb = fig.colorbar(im, cax=cbar_ax)
+	plt.suptitle(f'{model}')
+	plt.savefig(f'{save_fig}/python_figs/{model}_average.pdf')
+		# fig = plt.figure()
+		# ax = fig.add_axes([0.05, 0.80, 0.9, 0.1])
+		# cb = mpl.colorbar.ColorbarBase(ax, orientation='horizontal', cmap=cm.RdBu_r, norm=mpl.colors.Normalize(avg_corrs.min(), avg_corrs.max()))
+
+
+def unique_correlations(subject_list, data_dir):
+	intersect_sig_corrs = []
+	for idx, s in enumerate(subject_list):
+		with h5py.File(f'{data_dir}/{s}/{s}_STRF_by_pitchenvsphnfeat_AV.hf5', 'r') as h: #full auditory model
+			corr_full_av = h['corrs_mt'][:]
+			p_val_full_av = h['pvals_mt'][:]
+		sig_corrs_full_av = ([np.where (p_val_full_av[0] < 0.05)])
+		intersect_sig_corrs.append(list(np.ravel(sig_corrs_full_av)))
+		with h5py.File(f'{data_dir}/{s}/{s}_STRF_by_pitchenvsphnfeat_A.hf5', 'r') as h: #full auditory model
+			corr_full_a = h['corrs_mt'][:]
+			p_val_full_a = h['pvals_mt'][:]
+
+		sig_corrs_full_a = ([np.where (p_val_full_a[0] < 0.05)])
+		intersect_sig_corrs.append(list(np.ravel(sig_corrs_full_a)))
+
+	l1=[np.unique(l) for l in intersect_sig_corrs]
+	l1=np.concatenate(l1)
+	l1=np.sort(l1)
+	c=Counter(l1)
+	x = [k for k,v in c.items() if v==3]
+
+	return x
+	
+
+def errorbars(x, data, color):
+	'''
+	x = your x axis (vector of x coordinates)
+	data = your data value (y)
+	'''
+	sem_above = data.mean(0) - data.std(0)/np.sqrt(data.shape[0])
+	sem_below = data.mean(0) + data.std(0)/np.sqrt(data.shape[0])
+	plt.plot(x, data.mean(0), color)
+	plt.fill_between(x, sem_below, sem_above, color=color, alpha=0.3)
+
+
+def phoneme_erp(data_dir, subject_list, condition, block=1, fs=128., tmin=-0.3, tmax=0.5):
+	'''
+	THERE IS A BUG HERE. FIX LATER
+	'''
+
+	# all_resp_av = []
+	# all_resp_v = []
+	phn_dict = {}
+	for subject in subject_list:
+		event_phoneme_file_name = f'{data_dir}/{subject}/audio/{subject}_trailer_phn_info_{condition}.txt'
+		this_event = []
+		event_str = []
+		with open(event_phoneme_file_name, 'r') as my_csv:            # read the file as my_csv
+			csvReader = csv.reader(my_csv, delimiter='\t')  # using the csv module to write the file
+			for row in csvReader:
+				this_event.append(row[:3])
+				event_str.append(row[3])
+
+		# Convert to an array of numbers
+		this_event = np.array(this_event, dtype=np.float)
+		print(this_event)
+
+		event_samples = this_event.copy() # Make a copy of the variable first
+		event_samples[:,:2] = np.round(this_event[:,:2])
+
+		# Convert to integers
+		event_samples = event_samples.astype(np.int)
+
+		raw = load_raw_EEG(subject, block, data_dir)
+		phns = np.unique(event_str)
+		ignore_phonemes = [' ','nan', 'ns','{ns}']
+		unique_evs = np.setdiff1d(phns, ignore_phonemes)
+
+		for i, e in enumerate(unique_evs[:38]):
+			print("%d : %s"%(i,e))
+			if condition == 'A':
+				if subject == 'MT0035':
+					if e == 'aw':
+						continue
+			evnum = i
+			print("Finding events for %s"%(unique_evs[evnum]))
+			# time_bef = -0.2
+			# time_aft = 0.2
+			epochs = mne.Epochs(raw, event_samples, event_id=evnum, tmin=tmin, tmax=tmax, baseline=(None,None))
+			eps = epochs.get_data()
+
+			if e in phn_dict:
+				phn_dict[e].append(eps)
+			else:
+				phn_dict[e] = [eps]
+	return phn_dict
+
+def plot_phoneme_erp(phn_dict_av, phn_dict_a, tmin=-0.3, tmax=0.5, fs=128., row=8, col=5):
+	'''
+	THERE IS A BUG IN CODE ABOVE SO PLOTTING OBVIOUSLY WONT WORK. FIX LATER
+	'''
+	fig = plt.figure(figsize=(8,10))
+	fig.subplots_adjust(wspace=0.3, hspace=0.4)
+	keys = phn_dict_a.keys()
+	for i, s in enumerate(keys):
+		plt.subplot(row,col,i+1)
+		av = np.concatenate(phn_dict_av[s])
+		a = np.concatenate(phn_dict_av[s])
+
+		#plot subplot
+		plt.plot(av[:,:,:].mean(1).mean(0), color='red') #av
+		plt.plot(a[:,:,:].mean(1).mean(0), color='blue')
+		plt.title(f'{s}', fontsize=8)
+		#plt.plot([-tmin*fs, -tmin*frame_rate_sec], [yy[0], yy[1]], 'k')
+		
+		plt.axhline(0,color='k')
+		# Set the time axis ticks
+		plt.gca().set_xticks([0, 0-tmin*fs, 0+fs*(tmax-tmin)])
+		plt.gca().set_xticklabels([tmin, 0, tmax])
+		plt.axvline(38,color='k')
+	plt.legend(['av','v'], bbox_to_anchor=(1, 1), loc='upper left')
+
+def scene_cut_erp(data_dir, textgrid_dir, subject_list, block=1, fs=128., uV_scale=1e-6, tmin=-0.3,
+	tmax=0.5, frame_rate_sec = 0.04170833333333333, colors=['r', 'b'], plot_grand=True, plot_individual_figs=False):
+
+	all_resp_av = []
+	all_resp_v = []
+
+	for subject in subject_list:
+		event_file = pd.read_csv(f'{data_dir}/{subject}/audio/{subject}_B{block}_MovieTrailers_events.csv') #timing information of each movie trailer start			
+		#event_file = pd.read_csv(f'{data_dir}/{subject}/audio/{subject}_B{block}_MovieTrailers_events_notif_V.csv') #timing information of each movie trailer start			
+		
+		a = np.where(event_file['condition'] == 'AV')
+		evs = event_file.iloc[a][['onset_time', 'offset_time', 'event_id', 'name']].values
+		evs[:,:2] = evs[:,:2]*fs
+
+		b = np.where(event_file['condition'] == 'V')
+		evs_v = event_file.iloc[b][['onset_time', 'offset_time', 'event_id', 'name']].values
+		evs_v[:,:2] = evs_v[:,:2]*fs 
+		evs_v[:,:2] = evs_v[:,:2] - (frame_rate_sec *fs) #subtract one frame in 128. Hz sampling rate
+		raw = load_raw_EEG(subject, block, data_dir)
+		print('****************************')
+		print(evs.shape, evs_v.shape)
+		print('****************************')
+		onsets = []#audiovisual onset/offset info
+		offsets = []
+
+		onsets_v = [] #visual ONLY onset/offset info
+		offsets_v = []
+
+		for idx, i in enumerate(evs[:,3]): #audiovisual
+			tg = tgio.openTextgrid(f'{textgrid_dir}/{i}_corrected_SC.TextGrid')
+			sc_tier = tg.tierDict['Scene Cut']
+			df = pd.DataFrame([(start, end, label) for (start, end, label) in sc_tier.entryList],columns = ['start','end','label'])
+			onsets.append(df['start'].values*fs+evs[idx][0]) #audiovisual
+			offsets.append(df['end'].values*fs+evs[idx][1])
+		for idx, i in enumerate(evs_v[:,3]): #visual only
+			i = i.split('_visualonly_notif')[0]
+			print(i)
+			tg = tgio.openTextgrid(f'{textgrid_dir}/{i}_corrected_SC.TextGrid')
+			sc_tier = tg.tierDict['Scene Cut']
+			df = pd.DataFrame([(start, end, label) for (start, end, label) in sc_tier.entryList],columns = ['start','end','label'])
+			onsets_v.append(df['start'].values*fs+evs_v[idx][0]) #visual only
+			offsets_v.append(df['end'].values*fs+evs_v[idx][1])
+		
+		ones = np.ones(np.concatenate(offsets).shape[0]) #event ID for audiovisual
+		twos = np.ones(np.concatenate(offsets_v).shape[0])*2 #event ID for visual only
+	
+		sc_events_av = np.vstack((list(np.concatenate(onsets).astype(int)), list(np.concatenate(offsets).astype(int)), list(ones.astype(int)))).T #audiovisual scene cut information
+		sc_events_v = np.vstack((list(np.concatenate(onsets_v).astype(int)), list(np.concatenate(offsets_v).astype(int)), list(twos.astype(int)))).T #visual ONLY scene cut information
+
+		epochs_av = mne.Epochs(raw, sc_events_av, event_id=1, baseline=None,reject_by_annotation=True)
+
+		epochs_v = mne.Epochs(raw, sc_events_v, event_id=2, baseline=None, reject_by_annotation=True, event_repeated='merge')
+
+		times = [0.0, 0.05, 0.1, 0.2, 0.3]
+		visual_elecs = ['PO7', 'PO3', 'POz', 'PO4', 'PO8', 'O1', 'Oz', 'O2']
+
+		data_av = epochs_av.get_data(picks=visual_elecs)
+		data_v = epochs_v.get_data(picks=visual_elecs)
+		resp_av = data_av.mean(1)/uV_scale  
+		resp_v = data_v.mean(1)/uV_scale  
+		all_resp_av.append(resp_av.mean(0))
+		all_resp_v.append(resp_v.mean(0))
+
+
+		if plot_individual_figs:
+
+			#plotting topos and scalp ERPs for AV
+			evoked_av = epochs_av.average()	
+			evoked_av.plot_topomap(times, ch_type='eeg') #plot all electrodes
+
+			#plotting topos and scalp ERPs for Visual ONLY
+			evoked_v = epochs_v.average()
+			evoked_v.plot_topomap(times, ch_type='eeg') #plot all electrodes
+
+			evoked_av = epochs_av.average(picks=visual_elecs)
+			evoked_v = epochs_v.average(picks=visual_elecs)
+
+			mne.viz.plot_compare_evokeds(dict(av=evoked_av, visual=evoked_v),
+									legend='upper left', show_sensors='upper right')
+
+	if plot_grand:
+		t = np.linspace(tmin,tmax,num=np.array(all_resp_av).shape[1])
+		plt.figure()
+		errorbars(t, np.array(all_resp_av), colors[0])
+		errorbars(t, np.array(all_resp_v), colors[1])
+		plt.axvline(0,color='k')
+		plt.axhline(0,color='k')
+		plt.legend(['av','v'])
+		plt.xlabel('Time [s]')
+		plt.ylabel('Amplitude [uV]')
+	
+	return t, all_resp_av, all_resp_v	
+
+def individual_sc_subplot(subject_list, t, all_resp_av, all_resp_v, row=3, col=4):
+	fig = plt.figure(figsize=(10,10))
+	fig.subplots_adjust(wspace=0.3, hspace=0.4)
+	for i, s in enumerate(subject_list):
+		plt.subplot(row,col,i+1)
+		#y = np.squeeze(all_resp_av[idx])/1e-6
+		plt.plot(t, all_resp_av[i], color='red', alpha=0.5)
+		plt.plot(t, all_resp_v[i], color='blue', alpha=0.5)
+		plt.axvline(0,color='k')
+		plt.axhline(0,color='k')
+		plt.title(f'{s}',fontsize=12)
+
+		if i == 8:
+			plt.xlabel('Time (s)',fontsize=10)
+			plt.ylabel('µV',fontsize=10)
+
+	plt.legend(['av','v'], bbox_to_anchor=(1, 1), loc='upper left')
+
+def round_up(n, decimals=0):
+	multiplier = 10 ** decimals
+	return math.ceil(n * multiplier) / multiplier
+
+
+def plot_wts(data_dir, subject, condition, subplot_r=4, subplot_c=2, fs=128.0, delay_min=0.0, delay_max=0.6, grand_rois=False, avg_rois=True):
+	
+	feat_labels = ['sonorant','obstruent','voiced','back','front','low','high','dorsal',
+			'coronal','labial','syllabic','plosive','fricative','nasal', 'congruent', 'incongruent']
+
+	elecs_dict = {'visual': ['PO7', 'PO3', 'POz', 'PO4', 'PO8', 'O1', 'Oz', 'O2'], 'auditory': ['AFz', 'Cz','FCz','CPz','C1','C2','FC1','FC2']}
+	nfeats = len(feat_labels)
+
+	raw = load_raw_EEG(subject, 1, data_dir)
+	chnames = raw.info['ch_names']
+	with h5py.File(f'{data_dir}/{subject}/{subject}_STRF_by_mouthing_phnfeat_{condition}.hf5','r') as hf:
+		wts = hf['/wts_mt'][:]
+		corrs = hf['/corrs_mt'][:]
+		pval = hf['pvals_mt'][:]
+		# sig_corr_idx = np.where(pval[0]<0.05)
+		# sig_corrs = corrs[np.where(pval[0]<0.05)]
+		vis_wt_idx = [i for i, item in enumerate(chnames) if item in elecs_dict['visual']]
+		aud_wt_idx = [i for i, item in enumerate(chnames) if item in elecs_dict['auditory']]
+
+		#get all ROI weights in matrix
+		vis_wts = wts[:,vis_wt_idx] 
+		aud_wts = wts[:,aud_wt_idx]
+
+	wts2 = wts.reshape(np.int(wts.shape[0]/nfeats),nfeats,wts.shape[1] )
+	print(wts2.shape)
+	print(wts.shape)
+	print(nfeats)
+	delays = np.arange(np.floor((delay_min)*fs), np.ceil((delay_max)*fs), dtype=np.int) #create array to pass time delays in
+	print("Delays:", delays)
+	t = np.linspace(delay_min, delay_max, len(delays))
+	# Check whether the output path to save strfs exists or not
+	output_dir = f'/{data_dir}/{subject}/figures'
+	isExist = os.path.exists(output_dir)
+
+	if not isExist:
+		os.makedirs(output_dir)
+		print("The new directory is created!")
+
+	if grand_rois:
+		for i in elecs_dict:
+			fig = plt.figure(figsize=(10,12))
+			for m in range(len((elecs_dict[i]))):
+				plt.subplot(subplot_r, subplot_c, m+1)
+				strf = wts2[:,:,chnames.index(elecs_dict[i][m])].T
+				smax = np.abs(strf).max()
+				
+				plt.imshow(strf, cmap=cm.RdBu_r, aspect='auto', interpolation='nearest', vmin=-smax, vmax=smax)
+				plt.gca().set_xticks([0, (len(delays)-1)/2, len(delays)-1])
+				plt.gca().set_xticklabels([t[0], round_up(t[np.int((len(delays)-1)/2)],2), t[len(delays)-1]])
+				plt.gca().set_yticks(np.arange(strf.shape[0]))
+				plt.gca().set_yticklabels(feat_labels)
+				channel_names = str(elecs_dict[i][m])
+				plt.title('%s r=%.3g'%(elecs_dict[i][m], corrs[chnames.index(elecs_dict[i][m])]))
+				plt.colorbar()
+				plt.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=0.4, hspace=0.4)
+			plt.tight_layout()
+			plt.savefig(f'{output_dir}/{subject}_{i}_chs_wts.pdf')
+		
+	if avg_rois:
+		auditory_wts = aud_wts.reshape(np.int(aud_wts.shape[0]/nfeats),nfeats,aud_wts.shape[1] )
+		print(auditory_wts.shape)
+		print(aud_wts.shape)
+		print(nfeats)
+		delays = np.arange(np.floor((delay_min)*fs), np.ceil((delay_max)*fs), dtype=np.int) #create array to pass time delays in
+		print("Delays:", delays)
+
+		visual_wts = vis_wts.reshape(np.int(vis_wts.shape[0]/nfeats),nfeats,vis_wts.shape[1] )
+		print(visual_wts.shape)
+		print(vis_wts.shape)
+		print(nfeats)
+		delays = np.arange(np.floor((delay_min)*fs), np.ceil((delay_max)*fs), dtype=np.int) #create array to pass time delays in
+		print("Delays:", delays)
+
+		#figs, (ax1, ax2) = plt.subplots(1,2, sharex=True, sharey='row')
+		plt.figure()
+		plt.subplot(1,2,2)
+		plt.imshow(auditory_wts.mean(2).T, aspect='auto', interpolation='nearest', vmin=-auditory_wts.mean(2).max(), vmax=auditory_wts.mean(2).max(), cmap=cm.RdBu_r)
+		plt.gca().set_xticks([0, (len(delays)-1)/2, len(delays)-1])
+		plt.gca().set_xticklabels([t[0], round_up(t[np.int((len(delays)-1)/2)],2), t[len(delays)-1]])
+		plt.gca().set_yticks(np.arange(auditory_wts.shape[1]))
+		plt.gca().set_yticklabels(feat_labels)
+		plt.title('Auditory channels')
+		plt.colorbar()
+
+		plt.subplot(1,2,1)
+		plt.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=0.4, hspace=0.4)
+		plt.imshow(visual_wts.mean(2).T, aspect='auto', interpolation='nearest', vmin=-visual_wts.mean(2).max(), vmax=visual_wts.mean(2).max(), cmap=cm.RdBu_r)
+		plt.title('Visual channels')
+		plt.gca().set_xticks([0, (len(delays)-1)/2, len(delays)-1])
+		plt.gca().set_xticklabels([t[0], round_up(t[np.int((len(delays)-1)/2)],2), t[len(delays)-1]])
+		plt.gca().set_yticks(np.arange(auditory_wts.shape[1]))
+		plt.gca().set_yticklabels(feat_labels)
+		plt.xlabel('Time delays [s]')
+		plt.colorbar()
+
+		plt.savefig(f'{output_dir}/{subject}_avgROIs_wts.pdf')
+
+def corr_coef_v_a(data_dir, subject_list, strf_name, fs=128.0, delay_min=0.0, delay_max=0.6):
+
+	if strf_name == 'mouthing_phnfeat':
+		feat_labels = ['sonorant','obstruent','voiced','back','front','low','high','dorsal',
+			'coronal','labial','syllabic','plosive','fricative','nasal', 'congruent', 'incongruent']
+	if strf_name == 'phnfeat':
+		feat_labels = ['sonorant','obstruent','voiced','back','front','low','high','dorsal',
+			'coronal','labial','syllabic','plosive','fricative','nasal']
+
+	#elecs_dict = {'visual': ['PO7', 'PO3', 'POz', 'PO4', 'PO8', 'O1', 'Oz', 'O2'], 'auditory': ['AFz', 'Cz','FCz','CPz','C1','C2','FC1','FC2']}
+	nfeats = len(feat_labels)
+	print(nfeats)
+
+	raw = load_raw_EEG(subject_list[0], 1, data_dir)
+	nchans = raw.info['ch_names']
+
+	delays = np.arange(np.floor((delay_min)*fs), np.ceil((delay_max)*fs), dtype=np.int) #create array to pass time delays in
+	print("Delays:", delays)
+	ndelays = len(delays)
+
+
+	conditions = ['AV', 'V']
+	for c in conditions:
+		if c == 'AV':
+			av_mat = np.zeros((nfeats*ndelays, len(nchans), len(subject_list)))
+		elif c == 'A':
+			v_mat = np.zeros((nfeats*ndelays, len(nchans), len(subject_list)))
+		else:
+			print('undefined')
+
+		for idx, s in enumerate(subject_list):
+			with h5py.File(f'%s/%s/%s_STRF_by_{strf_name}_%s.hf5'%(data_dir, s, s, c), 'r') as fh: #full model
+				p_vals =  fh['pvals_mt'][:]
+				wts = fh['wts_mt'][:]
+
+				if c == 'AV':
+					av_mat[:,:, idx]=wts
+				elif c == 'V':
+					v_mat[:,:, idx]=wts
+				else:
+					print('Undefined input')
+
+	wts_corrs_list = np.zeros((len(nchans), len(subject_list)))
+	for ii, t in enumerate(subject_list):
+		for channel in np.arange(64):
+			audiovisual = av_mat[:,channel,ii] #average audiovisual wts across channels
+
+			visual = v_mat[:,channel,ii] #average visual only wts across channels
+			x = np.corrcoef(audiovisual, visual)
+			wts_corrs_list[channel,ii] = x[0,1] #setting every element of corr matrix to channel and subj
+
+	new_order = np.array(nchans).argsort()
+	print(wts_corrs_list.argmax())
+	y = wts_corrs_list.argmax()
+	[time, ch, nsubj] = np.unravel_index(y, (av_mat.shape))
+	topo_input = wts_corrs_list.mean(1)
+
+	plt.figure() 
+	info = mne.create_info(ch_names=nchans, sfreq=raw.info['sfreq'], ch_types=64*['eeg'])
+	raw2 = mne.io.RawArray(np.zeros((64,10)), info)
+	montage = mne.channels.make_standard_montage('standard_1005')
+	raw2.set_montage(montage)
+	mne.viz.plot_topomap(topo_input, raw2.info, vmin=topo_input.min(), vmax=topo_input.max())
+
+	fig = plt.figure()
+	ax = fig.add_axes([0.05, 0.80, 0.9, 0.1])
+	cb = mpl.colorbar.ColorbarBase(ax, orientation='horizontal', cmap=cm.RdBu_r, norm=mpl.colors.Normalize(topo_input.min(), topo_input.max()))
+
+# def roi_barplot(subject_list, data_dir):
+# 	feat_labels = ['sonorant','obstruent','voiced','back','front','low','high','dorsal',
+# 			'coronal','labial','syllabic','plosive','fricative','nasal', 'congruent', 'incongruent']
+
+# 	elecs_dict = {'visual': ['PO7', 'PO3', 'POz', 'PO4', 'PO8', 'O1', 'Oz', 'O2'], 'auditory': ['AFz', 'Cz','FCz','CPz','C1','C2','FC1','FC2']}
+# 	nfeats = len(feat_labels)
+
+# 	raw = load_raw_EEG(subject_list[0], 1, data_dir)
+# 	chnames = raw.info['ch_names']
+
+# 	#get indicies for auditory vs. visual only electrodes
+# 	vis_wt_idx = [i for i, item in enumerate(chnames) if item in elecs_dict['visual']]
+# 	aud_wt_idx = [i for i, item in enumerate(chnames) if item in elecs_dict['auditory']]
+
+# 	phnfeat_a = []
+# 	phnfeat_v = []
+# 	mouth_phns_a = []
+# 	mouth_phns_v = []
+
+# 	models = ['phnfeat', 'mouthing_phnfeat']
+# 	for strf_name in models:
+# 		for idx, s in enumerate(subject_list):
+# 			with h5py.File(f'%s/%s/%s_STRF_by_{strf_name}_AV.hf5'%(data_dir, s, s), 'r') as fh: #full model
+# 				p_vals =  fh['pvals_mt'][:]
+# 				corrs = fh['/corrs_mt'][:]
+# 				wts = fh['wts_mt'][:]
+
+# 				if strf_name == 'phnfeat':
+# 					phnfeat_a.append(corrs[aud_wt_idx].mean()) #append phnfeat only audio elecs
+# 					phnfeat_v.append(corrs[vis_wt_idx].mean()) #append phnfeat only visual elecs
+# 					#av_mat[:,:, idx]=wts
+# 				elif strf_name == 'mouthing_phnfeat':
+# 					mouth_phns_a.append(corrs[aud_wt_idx].mean()) #append mouthing/phnfeat audio elecs
+# 					mouth_phns_v.append(corrs[vis_wt_idx].mean()) #append mouthing/phnfeat visual elecs
+# 				else:
+# 					print('Undefined input')
+
+# 	#make barplot:
+# 	plt.figure(figsize=(8,4))
+
+# 	#colors = ['#2f87af', '#808080', '#e43318', '#000000' ]
+# 	n_groups = len(features)
+
+# 	index = np.arange(n_groups)
+# 	bar_width = 0.20
+# 	opacity = 0.6
+
+# 	rects1 = plt.bar(index - bar_width, np.mean(phnfeat_a), bar_width,  yerr = np.std(phnfeat_a)/len(subject_list), alpha=opacity, color='#808080', label='phnfeat audio corrs')
+
+# 	rects2 = plt.bar(index , np.mean(phnfeat_v), bar_width, yerr = np.std(phnfeat_v)/len(subject_list), alpha=0.3, color='#cd1a1e',label='phnfeat visual corrs')
+
+# 	rects3 = plt.bar(index + bar_width+0.1, np.mean(mouth_phns_a), bar_width, yerr = np.std(mouth_phns_a)/len(subject_list), alpha=opacity, color='#808080',label='mouth+phnfeat audio')
+
+# 	rects4 = plt.bar(index + bar_width*2+0.1, np.mean(mouth_phns_v), bar_width, yerr = np.std(mouth_phns_v)/len(subject_list), alpha=0.3, color='#cd1a1e',label='mouth+phnfeat visual')
+# 	plt.axhline(y=0.0, xmin=0.0, xmax=1.0, color='black')
+
+# 	features = ['phnfeat', 'mouthing+phnfeat']
+# 	plt.xticks(np.arange(len(features)), features)	
+
+def visualize_wts(subject, data_dir, model, conditions, save_fig, delay_min=0.0, delay_max=0.6, fs=128.):
+	for condition in conditions:
+		if model == 'scene_cut_gabor':
+			feat_labels = list(np.arange(10)) + ['SC']
+		if model == 'pitchenvsphnfeat':
+			feat_labels=['sonorant','obstruent','voiced','back','front','low','high','dorsal',
+					'coronal','labial','syllabic','plosive','fricative','nasal', 'envs', 'pitch']
+
+		nfeats = len(feat_labels)
+
+		raw = load_raw_EEG(subject, 1, data_dir)
+
+		chnames = raw.info['ch_names']
+
+		with h5py.File(f'{data_dir}/{subject}/{subject}_STRF_by_{model}_{condition}.hf5','r') as hf:
+			wts = hf['/wts_mt'][:]
+			corrs = hf['/corrs_mt'][:]
+
+		wts2 = wts.reshape(np.int(wts.shape[0]/nfeats),nfeats,wts.shape[1] ) #reshape weights since they are not from fitting STRFs
+		print(wts2.shape)
+		print(wts.shape)
+		print(nfeats)
+		# print(nfeats.shape)
+
+		# wt_pad = 0.0
+		delays = np.arange(np.floor((delay_min)*fs), np.ceil((delay_max)*fs), dtype=np.int) #create array to pass time delays in
+		print("Delays:", delays)
+		fig = plt.figure(figsize=(10,15))
+		for m in range((wts2.shape[2])):
+			plt.subplot(8, 8, m+1)
+			strf = wts2[:,:,m].T
+
+			smax = np.abs(strf).max()
+			t = np.linspace(delay_min, delay_max, len(delays))
+			plt.imshow(strf, cmap=cm.RdBu_r, aspect='auto', interpolation='nearest', vmin=-smax, vmax=smax)
+			plt.gca().set_xticks([0, (len(delays)-1)/2, len(delays)-1])
+			plt.gca().set_xticklabels([t[0], round_up(t[np.int((len(delays)-1)/2)],2), t[len(delays)-1]])
+
+			plt.gca().set_yticks(np.arange(nfeats))
+			plt.gca().set_yticklabels(feat_labels)
+
+			plt.title('%s r=%.3g'%(chnames[m], corrs[m]), fontsize=7)
+			plt.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=0.4, hspace=0.6)
+
+			plt.suptitle(f'{condition} {model}')
+			plt.savefig(f'{save_fig}/python_figs/{subject}_{condition}_{model}_all_chs.pdf')
+
+	return corrs, wts, wts2
+
+def mouth_erp(data_dir, textgrid_talker_dir, save_fig, subject_list, elecs, elec_type, condition='AV', 
+	block=1, fs=128., tmin=-0.3, tmax=0.5, uV_scale=1e-6, colors = ['g', 'r']):
+
+	congruent_resp = []
+	incongruent_resp = []
+
+	all_congruent_epochs = []
+	all_incongruent_epochs = []
+
+	for subject in subject_list:
+		event_file = pd.read_csv(f'{data_dir}/{subject}/audio/{subject}_B{block}_MovieTrailers_events.csv') #timing information of each movie trailer start			
+		a = np.where(event_file['condition'] == condition)
+		evs = event_file.iloc[a][['onset_time', 'offset_time', 'event_id', 'name']].values
+		evs[:,:2] = evs[:,:2]*fs
+		print(evs[:,:2].astype(int))
+
+		raw = load_raw_EEG(subject, block, data_dir)
+		yes_onset = []
+		yes_offset = []
+
+		no_onset = []
+		no_offset = []
+
+		for idx, i in enumerate(evs[:,3]): 
+			if condition == 'V':
+				i = i.split('_visualonly_notif')[0]
+			else:
+				print('processing AV')
+			tg = tgio.openTextgrid(f'{textgrid_talker_dir}/{i}_corrected_natsounds.TextGrid')
+			sc_tier = tg.tierDict['mouthing']
+			df = pd.DataFrame([(start, end, label) for (start, end, label) in sc_tier.entryList],columns = ['start','end','label'])
+			yes = np.where(df['label'] == 'yes')
+			yes_onset.append((df.iloc[yes]['start'].values*fs+evs[idx][0]).astype(int)) #in sampling rate of 128. Hz
+			yes_offset.append((df.iloc[yes]['start'].values*fs+evs[idx][1]+1).astype(int)) #add one for offset time
+
+			no = np.where(df['label'] == 'no')
+			no_onset.append((df.iloc[no]['start'].values*fs+evs[idx][0]).astype(int)) #in sampling rate of 128. Hz
+			no_offset.append((df.iloc[no]['start'].values*fs+evs[idx][1]+1).astype(int))
+
+		ones = np.ones(np.concatenate(yes_onset).shape[0])
+		twos = np.ones(np.concatenate(no_onset).shape[0])*2
+
+		congruent = np.vstack((list(np.concatenate(yes_onset).astype(int)), list(np.concatenate(yes_offset).astype(int)), list(ones.astype(int)))).T #congruent mouthing
+		incongruent = np.vstack((list(np.concatenate(no_onset).astype(int)), list(np.concatenate(no_offset).astype(int)), list(twos.astype(int)))).T #incongruent mouthing
+
+		epochs_cong = mne.Epochs(raw, congruent, event_id=1,  tmin=tmin, tmax=tmax, baseline=None,reject_by_annotation=True)
+		epochs_incong = mne.Epochs(raw, incongruent, event_id=2,  tmin=tmin, tmax=tmax, baseline=None,reject_by_annotation=True)
+
+
+		data_congru = epochs_cong.get_data(picks=elecs)
+		data_incongru = epochs_incong.get_data(picks=elecs)
+
+		all_congruent_epochs.append(epochs_cong)
+		all_incongruent_epochs.append(epochs_incong)
+
+		resp_c = data_congru.mean(1)/uV_scale
+		resp_ic = data_incongru.mean(1)/uV_scale
+		congruent_resp.append(resp_c.mean(0))
+		incongruent_resp.append(resp_ic.mean(0))
+
+		# evoked_v = epochs_v.average()
+		# evoked_v.plot_topomap(times, ch_type='eeg')
+
+	#plot grand avg. response
+	t = np.linspace(tmin,tmax,num=np.array(congruent_resp).shape[1])
+	plt.figure()
+	errorbars(t, np.array(congruent_resp), colors[0])
+	errorbars(t, np.array(incongruent_resp), colors[1])
+	plt.axvline(0,color='k')
+	plt.axhline(0,color='k')
+	plt.legend(['congruent','incongruent'])
+	plt.xlabel('Time [s]')
+	plt.ylabel('Amplitude [uV]')
+	plt.savefig(f'{save_fig}/python_figs/{elec_type}_grandAvg_mouthing-ERPs_{condition}.pdf')
+
+	#plot congruent topo maps
+	times = [-.3,-.2,-.1,0,.1,.2,.3,.4, .5]
+	rng=0.8
+	cat_congr_epochs = mne.concatenate_epochs(all_congruent_epochs)
+	cat_congr_epochs.average().plot_topomap(times, vmin=-rng,vmax=rng)
+	plt.savefig(f'{save_fig}/python_figs/allSubjs-64ch_congruent_topo_{condition}.pdf')
+
+	#plot incongruent topo maps
+	cat_incongr_epochs = mne.concatenate_epochs(all_incongruent_epochs)
+	cat_incongr_epochs.average().plot_topomap(times, vmin=-rng,vmax=rng)
+	plt.savefig(f'{save_fig}/python_figs/allSubjs-64ch_incongruent_topo_{condition}.pdf')
+
+#######################
+# if __name__ == "__main__":
+# 	user = 'maansidesai'
+# 	data_dir = f'/Users/{user}/Box/MovieTrailersTask/Data/EEG/Participants/'
+# 	textgrid_dir = f'/Users/{user}/Box/trailer_AV/textgrids/scene_cut_textGrids/AV_task'
+# 	textgrid_talker_dir = f'{textgrid_dir}/talker_tg'
+# 	save_fig=f'/Users/{user}/Box/Desai_Conference_and_Journal_Submissions/interspeech-2023_conference/'
+# 	subject_list = ['MT0028', 'MT0029', 'MT0030','MT0031' ,'MT0032', 'MT0033', 'MT0034', 'MT0035','MT0036', 'MT0037', 'MT0038']
+
+# 	elecs = ['PO7', 'PO3', 'POz', 'PO4', 'PO8', 'O1', 'Oz', 'O2']
+# 	#elecs = ['AFz', 'Cz','FCz','CPz','C1','C2','FC1','FC2']
+	
+# 	# x_aud, y_aud = scatters(subject_list, data_dir, 'pitchenvsphnfeat', 'pitchenvsphnfeat', 'AV', 'A', annotate_plot=True) 
+# 	# x_vis, y_vis = scatters(subject_list, data_dir, 'scene_cut_gabor', 'scene_cut_gabor', 'AV', 'V', annotate_plot=True)
+
+# 	# corrs_topo(x_aud, subject_list, row=6, col=2, individuals=False, average=True)
+# 	# corrs_topo(y_aud, subject_list, row=6, col=2, individuals=False, average=True)
+
+# 	# corrs_topo(x_vis, subject_list, row=6, col=2, individuals=False, average=True)
+# 	# corrs_topo(y_vis, subject_list, row=6, col=2, individuals=False, average=True)
+
+# 	#corrs, wts, wts2 = visualize_wts('MT0032', data_dir, 'pitchenvsphnfeat', ['AV', 'A'], save_fig, delay_min=0.0, delay_max=0.6, fs=128.)
+# 	#corrs, wts, wts2 = visualize_wts('MT0032', data_dir, 'scene_cut_gabor', ['AV', 'V'], save_fig, delay_min=0.0, delay_max=0.6, fs=128.)
+
+
+# 	mouth_erp(data_dir, textgrid_talker_dir, save_fig, subject_list, elecs, elec_type='visual', 
+# 		condition='V', block=1, fs=128., tmin=-0.3, tmax=0.5, uV_scale=1e-6, colors = ['green', 'red'])
